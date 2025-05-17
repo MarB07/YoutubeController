@@ -7,7 +7,8 @@ COMMANDS = (
     "quality_up",
     "quality_down",
     "cc",
-    
+    "fullscreen",
+    "theater",
     )
 
 if len(sys.argv) != 2 or sys.argv[1] not in COMMANDS:

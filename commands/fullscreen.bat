@@ -1,0 +1,1 @@
+py ..\send_command.py fullscreen

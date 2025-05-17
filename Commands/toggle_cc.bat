@@ -1,1 +1,1 @@
-py send_command.py cc
+py ..\send_command.py cc

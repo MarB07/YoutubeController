@@ -163,6 +163,18 @@ def send_command_loop():
                             if (btn) btn.click();
                         })()
                     """,
+                    "fullscreen": """
+                        (() => {
+                            const btn = document.querySelector('.ytp-fullscreen-button');
+                            if (btn) btn.click();
+                        })()
+                    """,
+                    "theater": """
+                        (() => {
+                            const btn = document.querySelector('.ytp-size-button');
+                            if (btn) btn.click();
+                        })()
+                    """,
                 }.get(command)
                 if expr:
                     try:
@@ -182,6 +194,10 @@ def send_command_loop():
                             print("Increased video quality")
                         elif command == "quality_down":
                             print("Decreased video quality")
+                        elif command == "fullscreen":
+                            print("Toggled Fullscreen")
+                        elif command == "theater":  
+                            print("Toggled theater Mode")
                         else:
                             print(f"Executed command: {command}")
                     except:
@@ -223,17 +239,12 @@ terminal_process = None
 def open_terminal(icon, item):
     subprocess.Popen('start cmd /k "powershell -Command Get-Content log.txt -Wait"', shell=True)
 
-# Function to toggle closed captions
-def toggle_cc(icon, item):
-    COMMAND_QUEUE.put("cc")
-
-# Function to increase video quality
-def quality_up(icon, item):
-    COMMAND_QUEUE.put("quality_up")
-
-# Function to decrease video quality
-def quality_down(icon, item):
-    COMMAND_QUEUE.put("quality_down")
+# functions to handle tray icon actions
+def quality_up(icon, item): COMMAND_QUEUE.put("quality_up")
+def quality_down(icon, item): COMMAND_QUEUE.put("quality_down")
+def toggle_cc(icon, item): COMMAND_QUEUE.put("cc")
+def toggle_fullscreen(icon, item): COMMAND_QUEUE.put("fullscreen")
+def toggle_theater(icon, item): COMMAND_QUEUE.put("theater")
 
 # Function to set up the system tray icon
 def setup_tray():
@@ -241,9 +252,11 @@ def setup_tray():
     icon.icon = get_icon_image()
     icon.menu = Menu(
         item("Open Terminal", open_terminal),
-        item("Toggle CC", toggle_cc),
         item("Quality Up", quality_up),
         item("Quality Down", quality_down),
+        item("Toggle CC", toggle_cc),
+        item("Toggle Fullscreen", toggle_fullscreen),
+        item("Toggle theater Mode", toggle_theater),
         item("Quit", on_quit)
     )
     threading.Thread(target=icon.run, daemon=True).start()

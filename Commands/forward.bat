@@ -1,1 +1,1 @@
-py send_command.py forward
+py ..\send_command.py forward

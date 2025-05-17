@@ -1,1 +1,1 @@
-py send_command.py quality_down
+py ..\send_command.py quality_down

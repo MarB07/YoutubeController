@@ -1,1 +1,1 @@
-py send_command.py backward
+py ..\send_command.py backward

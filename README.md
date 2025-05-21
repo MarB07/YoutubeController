@@ -51,7 +51,7 @@ Ways to trigger commands:
 ## How It Works
 
 - `.bat` files and the tray menu send commands to YoutubeController.
-- The program communicates with Chrome through the debugging port to control YouTube.
+- YoutubeController operates independently of the YouTube player. You can close the program at any time without interrupting or needing to restart your YouTube playback.
 
 ## Troubleshooting
 

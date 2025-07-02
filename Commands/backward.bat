@@ -1,1 +1,0 @@
-py ..\send_command.py backward

@@ -2,14 +2,18 @@ import socket
 import sys
 
 COMMANDS = (
-    "forward",
-    "backward",
+    "skip_forward",
+    "skip_backward",
     "quality_up",
     "quality_down",
+    "fix_video",
     "cc",
     "fullscreen",
     "theater",
     "restart",
+    "next_chapter",
+    "prev_chapter",
+    "progress_bar",
     )
 
 if len(sys.argv) != 2 or sys.argv[1] not in COMMANDS:

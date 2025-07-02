@@ -161,3 +161,5 @@ cython_debug/
 
 # VS Code
 log.txt
+controller.lock
+icon_base64.txt

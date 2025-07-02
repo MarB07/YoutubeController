@@ -16,7 +16,7 @@ import msvcrt
 import datetime
 
 # Constants
-VERSION = "1.4"
+VERSION = "1.4.0.1"
 COMMAND_QUEUE = queue.Queue()
 CONTROLLER_RUNNING = True
 
@@ -82,13 +82,14 @@ def current_time_str():
 def print_command(msg):
     global _last_printed, _last_count
     time_prefix = f"[{current_time_str()}] "
-    if msg == _last_printed:
-        _last_count += 1
-        print(f"{GREY}\033[F{time_prefix}{RESET}{msg} {GREY}(x{_last_count}){RESET}", flush=True)
-    else:
-        _last_printed = msg
-        _last_count = 1
-        print(f"{GREY}\r{time_prefix}{RESET}{msg}", flush=True)
+    if CONTROLLER_RUNNING:
+        if msg == _last_printed:
+            _last_count += 1
+            print(f"{GREY}\033[F{time_prefix}{RESET}{msg} {GREY}(x{_last_count}){RESET}", flush=True)
+        else:
+            _last_printed = msg
+            _last_count = 1
+            print(f"{GREY}\r{time_prefix}{RESET}{msg}", flush=True)
 
 
 # Wait for 'duration' seconds in 'interval' steps, exit early if CONTROLLER_RUNNING is False.
@@ -152,11 +153,8 @@ def send_command_loop():
         while CONTROLLER_RUNNING:
             ws_url = find_youtube_ws_url()
             if not ws_url:
-                if CONTROLLER_RUNNING:
-                    print(f"\r\n{YELLOW}WARNING: YouTube WebSocket URL not found. Retrying...{RESET}")
-                    time.sleep(1)
-                    continue
-                else: return
+                print_command(f"\r\n{YELLOW}WARNING: YouTube WebSocket URL not found. Retrying...{RESET}")
+                if not wait_or_exit(1): return None; continue
             try:
                 print(f"Connecting to WebSocket: {GREEN}{ws_url}{RESET}")
                 ws = websocket.create_connection(ws_url, timeout=5)
@@ -347,12 +345,11 @@ def send_command_loop():
                         except:
                             break
             except websocket._exceptions.WebSocketTimeoutException:
-                print(f"\r\n{YELLOW}WARNING: WebSocket connect timed out after 5s. Retrying...{RESET}")
-                time.sleep(1)
-                continue
+                print_command(f"\r\n{YELLOW}WARNING: WebSocket connect timed out after 5s. Retrying...{RESET}")
+                if not wait_or_exit(1): return None; continue
             except Exception as e:
-                print(f"\r\n{RED}ERROR: Error connecting to WebSocket: {e!r}. Retrying...{RESET}")
-                time.sleep(1)
+                print_command(f"\r\n{RED}ERROR: Error connecting to WebSocket: {e!r}. Retrying...{RESET}")
+                if not wait_or_exit(1): return None
     finally:
         # Ensure the WebSocket is closed when the loop ends
         pass

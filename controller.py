@@ -16,7 +16,7 @@ import msvcrt
 import datetime
 
 # Constants
-VERSION = "1.4.0.1"
+VERSION = "1.4.1"
 COMMAND_QUEUE = queue.Queue()
 CONTROLLER_RUNNING = True
 
@@ -166,8 +166,8 @@ def send_command_loop():
                         ws.close()
                         return
                     expr = {
-                        "skip_forward": "document.querySelector('video').currentTime += 5",
-                        "skip_backward": "document.querySelector('video').currentTime -= 5",
+                        "skip_forward": f"document.querySelector('video').currentTime += {SKIP_SECONDS}",
+                        "skip_backward": f"document.querySelector('video').currentTime -= {SKIP_SECONDS}",
                         "quality_up": """
                             (() => {
                                 const menuBtn = document.querySelector('.ytp-settings-button');
@@ -329,8 +329,8 @@ def send_command_loop():
                             }))
                             ws.recv()
                             match command:
-                                case "skip_forward": print_command("Skipped forward 5 seconds")
-                                case "skip_backward": print_command("Skipped backward 5 seconds")
+                                case "skip_forward": print_command("Skipped forward {SKIP_SECONDS} seconds")
+                                case "skip_backward": print_command("Skipped backward {SKIP_SECONDS} seconds")
                                 case "quality_up": print_command("Increased video quality")
                                 case "quality_down": print_command("Decreased video quality")
                                 case "fix_video": print_command("Set Quality and Volume to default")
@@ -401,15 +401,35 @@ def prev_chapter(icon, item): COMMAND_QUEUE.put("prev_chapter")
 def toggle_progress_bar(icon, item): COMMAND_QUEUE.put("progress_bar")
 
 
-# Function to set up the system tray icon
-def setup_tray():
-    icon = Icon("icon")
-    icon.icon = get_icon_image()
-    icon.menu = Menu(
+# Global skip seconds setting
+SKIP_SECONDS = 5
+SKIP_OPTIONS = [5, 10, 30, 60]
+
+def set_skip_seconds(icon, item):
+    global SKIP_SECONDS
+    SKIP_SECONDS = int(item.text[:-1])  # Remove 's' and convert to int
+    # Rebuild the menu to update the checked state
+    icon.menu = build_tray_menu(icon)
+
+def build_tray_menu(icon):
+    # Helper to build the skip seconds submenu
+    skip_menu = tuple(
+        item(
+            f"{secs}s{' (default)' if secs == 5 else ''}",
+            set_skip_seconds,
+            checked=lambda i, s=secs: SKIP_SECONDS == s
+        ) for secs in SKIP_OPTIONS
+    )
+    return Menu(
         item(
             f"YouTubeController V{VERSION}",
             lambda icon, item: None,
             enabled=False
+        ),
+        Menu.SEPARATOR,
+        item(
+            f"Seconds to skip: [{SKIP_SECONDS}s]",
+            Menu(*skip_menu)
         ),
         Menu.SEPARATOR,
         item("Quality Up", quality_up),
@@ -423,8 +443,15 @@ def setup_tray():
         item("Previous Chapter", prev_chapter),
         item("Toggle Progress Bar", toggle_progress_bar),
         item("Open Terminal", open_terminal),
-        item("Quit", on_quit)
+        item("❌ Quit", on_quit)
     )
+
+
+# Function to set up the system tray icon
+def setup_tray():
+    icon = Icon("icon")
+    icon.icon = get_icon_image()
+    icon.menu = build_tray_menu(icon)
     threading.Thread(target=icon.run, daemon=True).start()
 
 

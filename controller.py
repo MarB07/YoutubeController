@@ -1,30 +1,41 @@
-import threading
-import queue
-import socket
-import websocket
-import json
-import time
-import requests
-from pystray import Icon, MenuItem as item, Menu
-from PIL import Image
-import io
 import base64
-import subprocess
-import os
-import sys
-import msvcrt
 import datetime
+import io
+import json
+import msvcrt
+import os
+import queue
+import re
+import socket
+import sys
+import threading
+import time
+
+import requests
+import websocket
+from PIL import Image
+from pystray import Icon, MenuItem as item, Menu
+import tkinter as tk
+from tkinter.scrolledtext import ScrolledText
+
 
 # Constants
-VERSION = "1.4.1"
+VERSION = "1.5"
 COMMAND_QUEUE = queue.Queue()
 CONTROLLER_RUNNING = True
 
+# ANSI color codes for terminal output
 RED = '\033[31m'
 GREEN = '\033[32m'
 YELLOW = '\033[33m'
 GREY = '\033[90m'
 RESET = '\033[0m'
+
+# Global variables for skip seconds and options
+SKIP_SECONDS = 5
+SKIP_OPTIONS = [5, 10, 30, 60]
+
+
 
 ### Helper Functions ###
 
@@ -53,7 +64,7 @@ def check_single_instance():
         lockfile_handle = open(LOCKFILE, "w")
         msvcrt.locking(lockfile_handle.fileno(), msvcrt.LK_NBLCK, 1)
     except OSError:
-        print(f"{RED}ERROR: Another instance of YouTubeController is already running. Exiting...{RESET}")
+        print_msg(f"{RED}ERROR: Another instance of YouTubeController is already running. Exiting...{RESET}", no_time_prefix=True)
         sys.exit(1)
 
 
@@ -66,33 +77,154 @@ def check_port_available(port=65432):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("localhost", port))
     except OSError:
-        print(f"{RED}ERROR: Port {port} is already in use. Please check if no other program is using port {port}{RESET}")
+        print_msg(f"{RED}ERROR: Port {port} is already in use. Please check if no other program is using port {port}{RESET}", no_time_prefix=True)
         sys.exit(1)
 
 
-# Global state for print_command
+# Global variables for buffering and log viewer
 _last_printed = None
 _last_count = 0
+_screen_buffer = []
+_log_viewer = None
+_log_viewer_thread = None
+
+def write_screen_buffer():
+    # Only update log viewer if open
+    if _log_viewer:
+        _log_viewer.update_log(_screen_buffer)
 
 # Helper to get current time as HH:MM:SS
 def current_time_str():
     return datetime.datetime.now().strftime("%H:%M:%S")
 
-# Global print_command function
-def print_command(msg):
-    global _last_printed, _last_count
+# Function to print messages to the terminal with a timestamp and buffering
+# If the message is the same as the last printed message, it will update the count
+def print_msg(msg, no_time_prefix=False, space_before=False):
+    global _last_printed, _last_count, _screen_buffer
+    prefix = "\r\n" if space_before else ""
+    if no_time_prefix:
+        print(f"{prefix}{msg}", flush=True)
+        _screen_buffer.append(f"{prefix}{msg}" if space_before else msg)
+        write_screen_buffer()
+        return
     time_prefix = f"[{current_time_str()}] "
+
     if CONTROLLER_RUNNING:
         if msg == _last_printed:
             _last_count += 1
-            print(f"{GREY}\033[F{time_prefix}{RESET}{msg} {GREY}(x{_last_count}){RESET}", flush=True)
+            line = f"{GREY}{time_prefix}{RESET}{msg} {GREY}(x{_last_count}){RESET}"
+            _screen_buffer[-1] = line
         else:
             _last_printed = msg
             _last_count = 1
-            print(f"{GREY}\r{time_prefix}{RESET}{msg}", flush=True)
+            line = f"{prefix}{GREY}{time_prefix}{RESET}{msg}"
+            _screen_buffer.append(line)
+
+        # Print to terminal
+        if _last_count > 1:
+            print(f"{GREY}\033[F{_screen_buffer[-1]}", flush=True)
+        else:
+            print(f"{GREY}\r{_screen_buffer[-1]}", flush=True)
+        write_screen_buffer()
+
+
+# --- Tkinter Log Viewer ---
+class LogViewer(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("YouTubeController Log Viewer")
+        self.geometry("800x400")
+        self.configure(bg="#23272e")
+        self.protocol("WM_DELETE_WINDOW", self.hide)
+        self.text = ScrolledText(self, state="disabled", font=("Consolas", 11),
+        bg="#23272e", fg="#e6e6e6", insertbackground="#e6e6e6",
+        selectbackground="#44475a", selectforeground="#f8f8f2",
+        borderwidth=0, highlightthickness=0)
+        self.text.pack(fill=tk.BOTH, expand=True)
+        self._last_lines = []
+        self._color_map = {
+            '\033[31m': 'log_red',
+            '\033[32m': 'log_green',
+            '\033[33m': 'log_yellow',
+            '\033[90m': 'log_grey',
+            '\033[0m': 'log_fg',
+        }
+        self._setup_tags()
+        self.after(1000, self._periodic_update)
+
+    # Setup text tags for colored output
+    def _setup_tags(self):
+        self.text.tag_config('log_red', foreground='#ff5555')
+        self.text.tag_config('log_green', foreground='#50fa7b')
+        self.text.tag_config('log_yellow', foreground='#f1fa8c')
+        self.text.tag_config('log_grey', foreground='#888888')
+        self.text.tag_config('log_fg', foreground='#e6e6e6')
+
+    # Update the log viewer with new lines
+    def update_log(self, lines):
+        if lines == self._last_lines:
+            return
+        self._last_lines = list(lines)
+        self.text.config(state="normal")
+        self.text.delete(1.0, tk.END)
+        for line in lines:
+            self._insert_colored_line(line)
+        self.text.config(state="disabled")
+        self.text.see(tk.END)
+
+    # Insert a line with ANSI color codes
+    def _insert_colored_line(self, line):
+        ansi_re = re.compile(r'(\033\[\d+m)')
+        parts = ansi_re.split(line)
+        current_tag = 'log_fg'
+        for part in parts:
+            if part in self._color_map:
+                current_tag = self._color_map[part]
+            else:
+                self.text.insert(tk.END, part, current_tag)
+        self.text.insert(tk.END, '\n', current_tag)
+
+    # Show the log viewer window
+    def show(self):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    # Hide the log viewer window
+    def hide(self):
+        self.withdraw()
+
+    # Periodic update to check for new log lines
+    def _periodic_update(self):
+        if _screen_buffer != self._last_lines:
+            self.update_log(_screen_buffer)
+        self.after(1000, self._periodic_update)
+
+# Function to start the log viewer in a separate thread
+def start_log_viewer():
+    global _log_viewer, _log_viewer_thread
+    if _log_viewer:
+        _log_viewer.show()
+        return
+    def run():
+        global _log_viewer
+        _log_viewer = LogViewer()
+        _log_viewer.update_log(_screen_buffer)
+        _log_viewer.mainloop()
+        _log_viewer = None
+    _log_viewer_thread = threading.Thread(target=run, daemon=True)
+    _log_viewer_thread.start()
+
+# Function to toggle the log viewer visibility
+def toggle_log_viewer(icon, item):
+    if _log_viewer and _log_viewer.state() != 'withdrawn':
+        _log_viewer.hide()
+    else:
+        start_log_viewer()
 
 
 # Wait for 'duration' seconds in 'interval' steps, exit early if CONTROLLER_RUNNING is False.
+# This is useful to avoid blocking the main thread for too long.
 def wait_or_exit(duration, interval=0.1):
     steps = int(duration / interval)
     for _ in range(steps):
@@ -105,8 +237,8 @@ def wait_or_exit(duration, interval=0.1):
 # Clear the terminal screen & print initial message
 clear = lambda: os.system('cls' if os.name == 'nt' else 'clear')
 clear()
-print(f"{GREEN}YouTubeControllerV{VERSION} is running... (Made by: https://github.com/MarB07){RESET}")
-print(f"{GREY}Press Ctrl+C, or right-click the tray icon and select 'Quit' to exit.{RESET}")
+print_msg(f"{GREEN}YouTubeControllerV{VERSION} is running... (Made by: https://github.com/MarB07){RESET}", no_time_prefix=True)
+print_msg(f"{GREY}Press Ctrl+C, or right-click the tray icon and select 'Quit' to exit.\r\n{RESET}", no_time_prefix=True)
 
 
 
@@ -114,52 +246,56 @@ print(f"{GREY}Press Ctrl+C, or right-click the tray icon and select 'Quit' to ex
 
 # Function to find the YouTube WebSocket URL
 def find_youtube_ws_url():
-    try:
-        print("\r\nFetching YouTube WebSocket URL...\r\n")
-        while True:
-            if not CONTROLLER_RUNNING:
-                return None
+    print_msg("Fetching YouTube WebSocket URL...", no_time_prefix=True)
+    start_time = time.time()
+    TIMEOUT_SECONDS = 600  # 10 minutes
+
+    while CONTROLLER_RUNNING:
+        elapsed = time.time() - start_time
+        if elapsed > TIMEOUT_SECONDS:
+            print_msg(f"{RED}ERROR: No YouTube video tab found after 10 minutes. Exiting...{RESET}")
+            on_quit(None, None) # Exit the application
+            return None
+        
+        try:
             tabs = requests.get("http://localhost:9222/json").json()
-            # Find any YouTube tab
-            youtube_tabs = [
-                tab for tab in tabs
-                if "youtube.com" in tab.get("url", "")
-            ]
+            youtube_tabs = [tab for tab in tabs if "youtube.com" in tab.get("url", "")]
             if not youtube_tabs:
-                print_command(f"{YELLOW}WARNING: No YouTube tab found. Please open youtube.com in your browser.{RESET}")
+                print_msg(f"{YELLOW}WARNING: No YouTube tab found. Please open youtube.com in your browser.{RESET}")
                 if not wait_or_exit(2): return None; continue
-            # Now look for a video tab
-            video_tabs = [
-                tab for tab in youtube_tabs
-                if "/watch?v=" in tab.get("url", "")
-            ]
+
+            video_tabs = [tab for tab in youtube_tabs if "/watch?v=" in tab.get("url", "")]
             if len(video_tabs) > 1:
-                print_command(f"{YELLOW}WARNING: Multiple YouTube video tabs detected!\r\nPlease close all but one YouTube video tab.")
+                print_msg(f"{YELLOW}WARNING: Multiple YouTube video tabs detected!Please close all but one YouTube video tab.")
                 if not wait_or_exit(5): return None; continue
+
             elif len(video_tabs) == 1:
-                print(f"\r\nFound YouTube video tab: {GREEN}{video_tabs[0]['url']}{RESET}")
+                print_msg(f"Found YouTube video tab: {GREEN}{video_tabs[0]['url']}{RESET}", no_time_prefix=True, space_before=True)
                 return video_tabs[0]["webSocketDebuggerUrl"]
+            
             else:
-                print_command(f"{YELLOW}WARNING: No YouTube video detected. Please open a video in your YouTube tab...{RESET}")
+                print_msg(f"{YELLOW}WARNING: No YouTube video detected. Please open a video in your YouTube tab...{RESET}", space_before=True)
                 if not wait_or_exit(2): return None
-    except Exception:
-        print(f"{RED}ERROR: Error fetching YouTube WebSocket URL. Is Chrome running with remote debugging?{RESET}")
-        return None
+
+        except Exception:
+            print_msg(f"{RED}ERROR: Error fetching YouTube WebSocket URL. Is Chrome running with remote debugging?{RESET}", no_time_prefix=True)
+            return None
 
 
-# Function to send commands to the YouTube WebSocket
 def send_command_loop():
     try:
         while CONTROLLER_RUNNING:
             ws_url = find_youtube_ws_url()
             if not ws_url:
-                print_command(f"\r\n{YELLOW}WARNING: YouTube WebSocket URL not found. Retrying...{RESET}")
+                print_msg(f"{YELLOW}WARNING: YouTube WebSocket URL not found. Retrying...{RESET}")
                 if not wait_or_exit(1): return None; continue
+
             try:
-                print(f"Connecting to WebSocket: {GREEN}{ws_url}{RESET}")
+                print_msg(f"Connecting to WebSocket: {GREEN}{ws_url}{RESET}", no_time_prefix=True, space_before=True)
                 ws = websocket.create_connection(ws_url, timeout=5)
-                print(f"\r\n{GREEN}Connected to YouTube WebSocket{RESET}")
-                print(f"{GREY}Listening for commands...\r\n{RESET}")
+                print_msg(f"{GREEN}Connected to YouTube WebSocket{RESET}", no_time_prefix=True)
+                
+                print_msg(f"{GREY}Listening for commands...{RESET}", space_before=True)
                 while CONTROLLER_RUNNING:
                     command = COMMAND_QUEUE.get()
                     if command == "exit":
@@ -320,6 +456,7 @@ def send_command_loop():
                             })()
                         """,
                     }.get(command)
+
                     if expr:
                         try:
                             ws.send(json.dumps({
@@ -327,32 +464,34 @@ def send_command_loop():
                                 "method": "Runtime.evaluate",
                                 "params": { "expression": expr }
                             }))
-                            ws.recv()
+
                             match command:
-                                case "skip_forward": print_command("Skipped forward {SKIP_SECONDS} seconds")
-                                case "skip_backward": print_command("Skipped backward {SKIP_SECONDS} seconds")
-                                case "quality_up": print_command("Increased video quality")
-                                case "quality_down": print_command("Decreased video quality")
-                                case "fix_video": print_command("Set Quality and Volume to default")
-                                case "cc": print_command("Toggled Closed Captions (CC)")
-                                case "fullscreen": print_command("Toggled Fullscreen")
-                                case "theater": print_command("Toggled theater Mode")
-                                case "restart": print_command("Restarted video")
-                                case "next_chapter": print_command("Skipped to next chapter")
-                                case "prev_chapter": print_command("Skipped to previous chapter")
-                                case "progress_bar": print_command("Toggled progress bar visibility")
-                                case _: print_command(f"Executed command: {command}")
+                                case "skip_forward": print_msg(f"Skipped forward {SKIP_SECONDS} seconds")
+                                case "skip_backward": print_msg(f"Skipped backward {SKIP_SECONDS} seconds")
+                                case "quality_up": print_msg("Increased video quality")
+                                case "quality_down": print_msg("Decreased video quality")
+                                case "fix_video": print_msg("Set Quality and Volume to default")
+                                case "cc": print_msg("Toggled Closed Captions (CC)")
+                                case "fullscreen": print_msg("Toggled Fullscreen")
+                                case "theater": print_msg("Toggled theater Mode")
+                                case "restart": print_msg("Restarted video")
+                                case "next_chapter": print_msg("Skipped to next chapter")
+                                case "prev_chapter": print_msg("Skipped to previous chapter")
+                                case "progress_bar": print_msg("Toggled progress bar visibility")
+                                case _: print_msg(f"Executed command: {command}")
+
                         except:
+                            print_msg(f"{RED}ERROR: Failed to execute command: {command}. Is the video playing?{RESET}")
                             break
+
             except websocket._exceptions.WebSocketTimeoutException:
-                print_command(f"\r\n{YELLOW}WARNING: WebSocket connect timed out after 5s. Retrying...{RESET}")
+                print_msg(f"{YELLOW}WARNING: WebSocket connect timed out after 5s. Retrying...{RESET}")
                 if not wait_or_exit(1): return None; continue
+
             except Exception as e:
-                print_command(f"\r\n{RED}ERROR: Error connecting to WebSocket: {e!r}. Retrying...{RESET}")
+                print_msg(f"{RED}ERROR: Error connecting to WebSocket: {e!r}. Retrying...{RESET}")
                 if not wait_or_exit(1): return None
-    finally:
-        # Ensure the WebSocket is closed when the loop ends
-        pass
+    finally: pass
 
 
 # Function to listen for commands from a socket
@@ -372,22 +511,6 @@ def socket_listener():
                     COMMAND_QUEUE.put(data.decode())
 
 
-# Function to handle quitting the application
-def on_quit(icon, item):
-    global CONTROLLER_RUNNING, terminal_process
-    CONTROLLER_RUNNING = False
-    COMMAND_QUEUE.put("exit")
-    if terminal_process:
-        terminal_process.terminate()
-        terminal_process = None
-    icon.stop()
-
-
-# Function to open a terminal window that tails the log
-def open_terminal(icon, item):
-    subprocess.Popen('start cmd /k "powershell -Command Get-Content log.txt -Wait"', shell=True)
-
-
 # functions to handle tray icon actions
 def quality_up(icon, item): COMMAND_QUEUE.put("quality_up")
 def quality_down(icon, item): COMMAND_QUEUE.put("quality_down")
@@ -399,20 +522,26 @@ def restart(icon, item): COMMAND_QUEUE.put("restart")
 def next_chapter(icon, item): COMMAND_QUEUE.put("next_chapter")
 def prev_chapter(icon, item): COMMAND_QUEUE.put("prev_chapter")
 def toggle_progress_bar(icon, item): COMMAND_QUEUE.put("progress_bar")
+def on_quit(icon, item):
+    print_msg(f"{RED}Closing YouTubeController...{RESET}", space_before=True)
+    global CONTROLLER_RUNNING
+    CONTROLLER_RUNNING = False
+    COMMAND_QUEUE.put("exit")
+    if icon is not None:
+        icon.stop()
 
 
-# Global skip seconds setting
-SKIP_SECONDS = 5
-SKIP_OPTIONS = [5, 10, 30, 60]
-
+# Function to set the skip seconds based on the selected menu item
 def set_skip_seconds(icon, item):
     global SKIP_SECONDS
-    SKIP_SECONDS = int(item.text[:-1])  # Remove 's' and convert to int
-    # Rebuild the menu to update the checked state
+    match = re.match(r"(\d+)", item.text)
+    if match:
+        SKIP_SECONDS = int(match.group(1))
+        print_msg(f"Set skip seconds to {SKIP_SECONDS}s")
     icon.menu = build_tray_menu(icon)
 
+# Function to build the system tray menu
 def build_tray_menu(icon):
-    # Helper to build the skip seconds submenu
     skip_menu = tuple(
         item(
             f"{secs}s{' (default)' if secs == 5 else ''}",
@@ -432,20 +561,19 @@ def build_tray_menu(icon):
             Menu(*skip_menu)
         ),
         Menu.SEPARATOR,
-        item("Quality Up", quality_up),
-        item("Quality Down", quality_down),
-        item("Reset Quality and Volume to default", fix_video),
-        item("Toggle CC", cc),
-        item("Toggle Fullscreen", toggle_fullscreen),
-        item("Toggle theater Mode", toggle_theater),
-        item("Restart Video", restart),
-        item("Next Chapter", next_chapter),
-        item("Previous Chapter", prev_chapter),
-        item("Toggle Progress Bar", toggle_progress_bar),
-        item("Open Terminal", open_terminal),
+        item("🔺 Quality Up", quality_up),
+        item("🔻 Quality Down", quality_down),
+        item("🔃 Reset Quality and Volume to default", fix_video),
+        item("🔤 Toggle CC", cc),
+        item("🎦 Toggle Fullscreen", toggle_fullscreen),
+        item("🎦 Toggle theater Mode", toggle_theater),
+        item("🔄️ Restart Video", restart),
+        item("▶️ Next Chapter", next_chapter),
+        item("◀️ Previous Chapter", prev_chapter),
+        item("📶 Toggle Progress Bar", toggle_progress_bar),
+        item("🪟 Show/Hide Log Window", toggle_log_viewer),
         item("❌ Quit", on_quit)
     )
-
 
 # Function to set up the system tray icon
 def setup_tray():
@@ -470,7 +598,7 @@ def main():
         while CONTROLLER_RUNNING:
             time.sleep(0.05)
     except KeyboardInterrupt:
-        print(f"\r\n{RED}Exiting on Ctrl+C. {GREY}Please wait...{RESET}")
+        print_msg(f"{RED}Exiting on Ctrl+C. {GREY}Please wait...{RESET}", no_time_prefix=True, space_before=True)
         CONTROLLER_RUNNING = False
         COMMAND_QUEUE.put("exit")
     finally:

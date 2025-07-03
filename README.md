@@ -35,8 +35,9 @@ To always start Chrome with debugging enabled, create a desktop shortcut:
 ## Using `.bat` Files and the System Tray Menu
 
 - The provided `.bat` files send commands to YoutubeController.
-- Each `.bat` file triggers a specific action (e.g., skip 5s, toggle captions).
+- Each `.bat` file triggers a specific action (e.g., skip 5s (or more), toggle captions).
 - The same actions are available via the YoutubeController system tray icon menu.
+- You can open a logger window from the system tray menu to view the commands being sent and check for any errors. This feature is mainly intended for debugging purposes.
 
 Ways to trigger commands:
 - **Stream Deck:** Assign `.bat` files to Stream Deck buttons.

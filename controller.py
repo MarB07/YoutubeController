@@ -20,7 +20,7 @@ from tkinter.scrolledtext import ScrolledText
 
 
 # Constants
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 COMMAND_QUEUE = queue.Queue()
 CONTROLLER_RUNNING = True
 
@@ -84,23 +84,24 @@ def check_port_available(port=65432):
 # Global variables for buffering and log viewer
 _last_printed = None
 _last_count = 0
+_last_timer = 0.0
 _screen_buffer = []
 _log_viewer = None
 _log_viewer_thread = None
 
-def write_screen_buffer():
-    # Only update log viewer if open
-    if _log_viewer:
-        _log_viewer.update_log(_screen_buffer)
-
-# Helper to get current time as HH:MM:SS
-def current_time_str():
-    return datetime.datetime.now().strftime("%H:%M:%S")
-
-# Function to print messages to the terminal with a timestamp and buffering
-# If the message is the same as the last printed message, it will update the count
+# Function to print log messages to the terminal with a timestamp and buffering
+# If the log message is the same as the previous and was sent within 60 seconds of the previous one,
+# the count is incremented instead of printing a new line.
 def print_msg(msg, no_time_prefix=False, space_before=False):
-    global _last_printed, _last_count, _screen_buffer
+    global _last_printed, _last_count, _screen_buffer, _last_timer
+
+    def write_screen_buffer():
+        if _log_viewer:
+            _log_viewer.update_log(_screen_buffer)
+
+    def current_time_str():
+        return datetime.datetime.now().strftime("%H:%M:%S")
+
     prefix = "\r\n" if space_before else ""
     if no_time_prefix:
         print(f"{prefix}{msg}", flush=True)
@@ -108,9 +109,10 @@ def print_msg(msg, no_time_prefix=False, space_before=False):
         write_screen_buffer()
         return
     time_prefix = f"[{current_time_str()}] "
+    now = time.time()
 
     if CONTROLLER_RUNNING:
-        if msg == _last_printed:
+        if msg == _last_printed and (now - _last_timer) < 60:
             _last_count += 1
             line = f"{GREY}{time_prefix}{RESET}{msg} {GREY}(x{_last_count}){RESET}"
             _screen_buffer[-1] = line
@@ -120,11 +122,11 @@ def print_msg(msg, no_time_prefix=False, space_before=False):
             line = f"{prefix}{GREY}{time_prefix}{RESET}{msg}"
             _screen_buffer.append(line)
 
-        # Print to terminal
         if _last_count > 1:
             print(f"{GREY}\033[F{_screen_buffer[-1]}", flush=True)
         else:
             print(f"{GREY}\r{_screen_buffer[-1]}", flush=True)
+        _last_timer = now
         write_screen_buffer()
 
 
@@ -233,13 +235,15 @@ def wait_or_exit(duration, interval=0.1):
         time.sleep(interval)
     return True
 
+# Function to clear the terminal screen and print a welcome message
+def welcome_message():
+    clear = lambda: os.system('cls' if os.name == 'nt' else 'clear')
+    clear()
+    print_msg(f"{GREEN}YouTubeControllerV{VERSION} is running... (Made by: https://github.com/MarB07){RESET}", no_time_prefix=True)
+    print_msg(f"{GREY}Press Ctrl+C, or right-click the tray icon and select 'Quit' to exit.\r\n{RESET}", no_time_prefix=True)
 
-# Clear the terminal screen & print initial message
-clear = lambda: os.system('cls' if os.name == 'nt' else 'clear')
-clear()
-print_msg(f"{GREEN}YouTubeControllerV{VERSION} is running... (Made by: https://github.com/MarB07){RESET}", no_time_prefix=True)
-print_msg(f"{GREY}Press Ctrl+C, or right-click the tray icon and select 'Quit' to exit.\r\n{RESET}", no_time_prefix=True)
-
+# Print the welcome message when the script starts
+welcome_message()
 
 
 ### Main Functions ###
@@ -293,9 +297,11 @@ def send_command_loop():
             try:
                 print_msg(f"Connecting to WebSocket: {GREEN}{ws_url}{RESET}", no_time_prefix=True, space_before=True)
                 ws = websocket.create_connection(ws_url, timeout=5)
+
+                welcome_message()
                 print_msg(f"{GREEN}Connected to YouTube WebSocket{RESET}", no_time_prefix=True)
                 
-                print_msg(f"{GREY}Listening for commands...{RESET}", space_before=True)
+                print_msg(f"{GREY}Listening for commands...{RESET}")
                 while CONTROLLER_RUNNING:
                     command = COMMAND_QUEUE.get()
                     if command == "exit":

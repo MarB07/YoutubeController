@@ -6,7 +6,6 @@ COMMANDS = (
     "skip_backward",
     "quality_up",
     "quality_down",
-    "fix_video",
     "cc",
     "fullscreen",
     "theater",

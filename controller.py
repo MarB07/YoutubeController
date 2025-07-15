@@ -20,7 +20,7 @@ from tkinter.scrolledtext import ScrolledText
 
 
 # Constants
-VERSION = "1.5"
+VERSION = "1.5.1"
 COMMAND_QUEUE = queue.Queue()
 CONTROLLER_RUNNING = True
 
@@ -346,23 +346,6 @@ def send_command_loop():
                                 }, 100);
                             })()
                         """,
-                        "fix_video": """
-                            (() => {
-                                const video = document.querySelector('video');
-                                if (video) video.volume = 1.0;
-
-                                const d = new Date();
-                                let ms = d.valueOf();
-                                let oneYear = 365 * 24 * 60 * 60 * 1000;
-                                try {
-                                    localStorage.setItem('yt-player-volume', JSON.stringify({
-                                        data: "{\\"volume\\":100,\\"muted\\":false}",
-                                        expiration: ms + oneYear,
-                                        creation: ms
-                                    }));
-                                } catch (e) {}
-                            })()
-                        """,
                         "cc": """
                             (() => {
                                 const btn = document.querySelector('.ytp-subtitles-button');
@@ -470,7 +453,6 @@ def send_command_loop():
                                 case "skip_backward": print_msg(f"Skipped backward {SKIP_SECONDS} seconds")
                                 case "quality_up": print_msg("Increased video quality")
                                 case "quality_down": print_msg("Decreased video quality")
-                                case "fix_video": print_msg("Set Quality and Volume to default")
                                 case "cc": print_msg("Toggled Closed Captions (CC)")
                                 case "fullscreen": print_msg("Toggled Fullscreen")
                                 case "theater": print_msg("Toggled theater Mode")
@@ -514,7 +496,6 @@ def socket_listener():
 # functions to handle tray icon actions
 def quality_up(icon, item): COMMAND_QUEUE.put("quality_up")
 def quality_down(icon, item): COMMAND_QUEUE.put("quality_down")
-def fix_video(icon, item): COMMAND_QUEUE.put("fix_video")
 def cc(icon, item): COMMAND_QUEUE.put("cc")
 def toggle_fullscreen(icon, item): COMMAND_QUEUE.put("fullscreen")
 def toggle_theater(icon, item): COMMAND_QUEUE.put("theater")
@@ -563,7 +544,6 @@ def build_tray_menu(icon):
         Menu.SEPARATOR,
         item("🔺 Quality Up", quality_up),
         item("🔻 Quality Down", quality_down),
-        item("🔃 Reset Quality and Volume to default", fix_video),
         item("🔤 Toggle CC", cc),
         item("🎦 Toggle Fullscreen", toggle_fullscreen),
         item("🎦 Toggle theater Mode", toggle_theater),

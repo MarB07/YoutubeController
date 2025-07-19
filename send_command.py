@@ -13,6 +13,14 @@ COMMANDS = (
     "next_chapter",
     "prev_chapter",
     "progress_bar",
+    
+    "video_navigator",
+    "navigator_select",
+    "navigator_layout",
+    "navigator_up",
+    "navigator_down",
+    "navigator_left",
+    "navigator_right",
     )
 
 if len(sys.argv) != 2 or sys.argv[1] not in COMMANDS:

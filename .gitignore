@@ -163,3 +163,4 @@ cython_debug/
 log.txt
 controller.lock
 icon_base64.txt
+/node_modules
